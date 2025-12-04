@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SchoolOS</title>
+    
+    <!-- 1. STYLE: Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 2. ICONS: Lucide -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- 3. FIREBASE: Compat Libraries -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+
+    <!-- 4. STYLES -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; -webkit-font-smoothing: antialiased; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .fade-in { animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+        .slide-up { animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        
+        /* Sidebar Transitions */
+        #sidebar { transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .sidebar-text { transition: opacity 0.2s; white-space: nowrap; overflow: hidden; }
+        .collapsed .sidebar-text { width: 0; opacity: 0; pointer-events: none; }
+        .collapsed .nav-btn { justify-content: center; padding-left: 0; padding-right: 0; }
+        .collapsed .hide-on-collapse { display: none; }
+        
+        /* Toggle Button Logic */
+        .show-on-collapse { display: none; }
+        .collapsed .show-on-collapse { display: flex; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 h-screen overflow-hidden selection:bg-indigo-100 selection:text-indigo-700 relative">
+
+    <!-- === AUTH VIEW (Login/Signup) === -->
+    <div id="auth-view" class="absolute inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-slate-900 to-indigo-900">
+        <div class="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md slide-up">
+            <div class="flex items-center gap-3 mb-8 justify-center">
+                <div class="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white"><i data-lucide="layout" class="w-6 h-6"></i></div>
+                <h1 class="text-2xl font-bold text-slate-800">School<span class="text-indigo-600">OS</span></h1>
+            </div>
+
+            <form id="auth-form" onsubmit="event.preventDefault(); app.handleAuth();" class="space-y-4">
+                <div id="auth-error" class="hidden p-3 bg-red-50 text-red-600 text-sm rounded-lg font-medium text-center"></div>
+                
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Email</label>
+                    <input id="email" type="email" class="w-full p-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="student@school.edu" required>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Password</label>
+                    <input id="password" type="password" class="w-full p-3 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="••••••••" required>
+                </div>
+
+                <button type="submit" id="auth-submit-btn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-indigo-200">
+                    Sign In
+                </button>
+            </form>
+
+            <div class="mt-6 text-center text-sm">
+                <p class="text-slate-500" id="auth-toggle-text">New here?</p>
+                <button onclick="app.toggleAuthMode()" class="text-indigo-600 font-bold hover:underline" id="auth-toggle-btn">Create an Account</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- === APP VIEW (Hidden by default) === -->
+    <div id="app-view" class="hidden flex h-full w-full">
+        <!-- SIDEBAR -->
+        <aside id="sidebar" class="w-64 bg-slate-900 text-slate-300 flex flex-col z-30 relative border-r border-slate-800 shadow-xl shrink-0">
+            <div class="h-16 flex items-center justify-between px-5 border-b border-slate-800">
+                <div class="flex items-center gap-3 overflow-hidden">
+                    <div class="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center shrink-0"><i data-lucide="layout" class="text-white w-4 h-4"></i></div>
+                    <h1 class="font-bold text-lg text-white sidebar-text">School<span class="text-indigo-400">OS</span></h1>
+                </div>
+                <!-- Collapse Button (Internal) -->
+                <button onclick="app.toggleSidebar()" class="p-1 hover:bg-slate-800 rounded text-slate-400 hide-on-collapse"><i data-lucide="chevron-left" class="w-5 h-5"></i></button>
+            </div>
+            
+            <!-- Expand Button (Floating - Visible only when collapsed) -->
+            <button onclick="app.toggleSidebar()" class="show-on-collapse absolute top-5 -right-3 bg-slate-800 text-slate-400 p-1 rounded-full border border-slate-700 shadow-lg hover:text-white hover:bg-indigo-600 transition-colors z-50">
+                <i data-lucide="chevron-right" class="w-3 h-3"></i>
+            </button>
+
+            <nav id="nav-links" class="flex-1 px-3 py-4 space-y-1 overflow-y-auto no-scrollbar"></nav>
+
+            <div class="p-4 border-t border-slate-800 bg-slate-900 flex flex-col gap-2">
+                <div class="flex items-center gap-3 overflow-hidden">
+                    <div class="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 text-white flex items-center justify-center font-bold text-xs shrink-0">U</div>
+                    <div class="flex-1 overflow-hidden sidebar-text">
+                        <p id="user-email-display" class="text-xs font-medium text-white truncate">Loading...</p>
+                        <p class="text-[10px] text-emerald-400 truncate uppercase tracking-wider flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Online</p>
+                    </div>
+                </div>
+                <button onclick="app.logout()" class="w-full flex items-center justify-center gap-2 text-xs font-bold text-slate-500 hover:text-white hover:bg-slate-800 py-2 rounded-lg transition-colors sidebar-text">
+                    <i data-lucide="log-out" class="w-3 h-3"></i> Sign Out
+                </button>
+            </div>
+        </aside>
+
+        <!-- MAIN CONTENT -->
+        <main class="flex-1 flex flex-col overflow-hidden bg-slate-50 relative w-full">
+            <div class="h-10 bg-white border-b border-slate-200 flex items-end px-2 gap-1 overflow-x-auto no-scrollbar shadow-sm z-20" id="tab-bar"></div>
+            <header class="h-16 border-b border-slate-200 bg-white/80 backdrop-blur-md flex items-center justify-between px-6 md:px-8 shrink-0 z-10 sticky top-0">
+                <div class="flex items-center gap-4" id="header-title"></div>
+                <div class="flex items-center gap-3">
+                    <button onclick="app.openTaskModal()" class="inline-flex items-center justify-center font-medium transition-all rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 px-4 py-2 text-sm shadow-sm hover:shadow-indigo-200 active:scale-95"><i data-lucide="plus" class="w-4 h-4 mr-2"></i> New Task</button>
+                </div>
+            </header>
+            <div id="main-view" class="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth relative"></div>
+        </main>
+    </div>
+
+    <!-- MODAL -->
+    <div id="modal-container" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm transition-opacity p-4"></div>
+
+    <!-- LOGIC -->
+    <script>
+        // --- 1. CONFIGURATION (YOUR KEYS) ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyAd0K3Is0QFNW9Jyw6kuYMD4dVpIyxetqA",
+            authDomain: "schoolos-1bdba.firebaseapp.com",
+            projectId: "schoolos-1bdba",
+            storageBucket: "schoolos-1bdba.firebasestorage.app",
+            messagingSenderId: "910976683838",
+            appId: "1:910976683838:web:cf508251b91a0c6bc9666f"
+        };
+
+        const TAB_CONFIG = {
+            dashboard: { label: 'Dashboard', icon: 'layout-dashboard' },
+            tasks: { label: 'Tasks', icon: 'check-circle-2' },
+            calendar: { label: 'Calendar', icon: 'calendar-days' },
+            grades: { label: 'Grades', icon: 'calculator' },
+            study: { label: 'Study Timer', icon: 'timer' },
+        };
+        const TASK_TYPES = {
+            HOMEWORK: { label: 'Homework', color: 'bg-sky-100 text-sky-700 border-sky-200', icon: 'book' },
+            EXAM: { label: 'Exam', color: 'bg-rose-100 text-rose-700 border-rose-200', icon: 'alert-triangle' },
+            PROJECT: { label: 'Project', color: 'bg-purple-100 text-purple-700 border-purple-200', icon: 'folder-kanban' },
+        };
+
+        // --- 2. CLOUD STORE ---
+        let db, auth, currentUser;
+
+        const Store = {
+            async init() {
+                if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+                db = firebase.firestore();
+                auth = firebase.auth();
+
+                // Auth Listener
+                auth.onAuthStateChanged(user => {
+                    if (user) {
+                        currentUser = user;
+                        document.getElementById('auth-view').classList.add('hidden');
+                        document.getElementById('app-view').classList.remove('hidden');
+                        document.getElementById('user-email-display').innerText = user.email;
+                        app.loadData();
+                    } else {
+                        currentUser = null;
+                        document.getElementById('auth-view').classList.remove('hidden');
+                        document.getElementById('app-view').classList.add('hidden');
+                    }
+                });
+            },
+            
+            // CRUD Wrappers - Secured to current user ID
+            async fetch(col) { return currentUser ? (await db.collection('users').doc(currentUser.uid).collection(col).get()).docs.map(d => ({id:d.id, ...d.data()})) : []; },
+            async add(col, item) { return currentUser ? db.collection('users').doc(currentUser.uid).collection(col).add({...item, createdAt: new Date().toISOString()}) : null; },
+            async update(col, id, data) { if(currentUser) await db.collection('users').doc(currentUser.uid).collection(col).doc(id).update(data); },
+            async delete(col, id) { if(currentUser) await db.collection('users').doc(currentUser.uid).collection(col).doc(id).delete(); }
+        };
+
+        // --- 3. STATE ---
+        const state = {
+            sidebarOpen: true,
+            activeTab: 'dashboard',
+            openTabs: ['dashboard'],
+            data: { tasks: [], subjects: [], grades: [] },
+            timer: { active: false, timeLeft: 25 * 60, interval: null },
+            calendarDate: new Date(),
+            isRegistering: false
+        };
+
+        // --- 4. CONTROLLER ---
+        const app = {
+            init: () => { Store.init(); },
+
+            // Auth Logic
+            toggleAuthMode: () => {
+                state.isRegistering = !state.isRegistering;
+                document.getElementById('auth-submit-btn').innerText = state.isRegistering ? "Create Account" : "Sign In";
+                document.getElementById('auth-toggle-text').innerText = state.isRegistering ? "Already have an account?" : "New here?";
+                document.getElementById('auth-toggle-btn').innerText = state.isRegistering ? "Sign In" : "Create an Account";
+                document.getElementById('auth-error').classList.add('hidden');
+            },
+
+            handleAuth: async () => {
+                const email = document.getElementById('email').value;
+                const pass = document.getElementById('password').value;
+                const errorEl = document.getElementById('auth-error');
+                
+                try {
+                    if (state.isRegistering) {
+                        await auth.createUserWithEmailAndPassword(email, pass);
+                    } else {
+                        await auth.signInWithEmailAndPassword(email, pass);
+                    }
+                } catch (e) {
+                    errorEl.innerText = e.message.replace("Firebase: ", "");
+                    errorEl.classList.remove('hidden');
+                }
+            },
+
+            logout: () => auth.signOut(),
+
+            loadData: async () => {
+                state.data.tasks = await Store.fetch('tasks');
+                state.data.subjects = await Store.fetch('subjects');
+                state.data.grades = await Store.fetch('grades');
+                
+                // Seed Defaults if empty
+                if(state.data.subjects.length === 0) {
+                    const defaults = [{name:'Math',color:'#6366f1'},{name:'Science',color:'#10b981'},{name:'History',color:'#f59e0b'},{name:'English',color:'#ec4899'}, {name:'Art',color:'#f43f5e'}, {name:'Comp Sci',color:'#06b6d4'}];
+                    defaults.forEach(s => Store.add('subjects', s));
+                    // Re-fetch after small delay to show immediately
+                    setTimeout(async () => { state.data.subjects = await Store.fetch('subjects'); app.render(); }, 500);
+                }
+                app.render();
+            },
+
+            // Navigation
+            toggleSidebar: () => {
+                state.sidebarOpen = !state.sidebarOpen;
+                const sb = document.getElementById('sidebar');
+                if(state.sidebarOpen) { sb.classList.remove('collapsed', 'w-20'); sb.classList.add('w-64'); }
+                else { sb.classList.remove('w-64'); sb.classList.add('collapsed', 'w-20'); }
+                app.renderSidebar();
+                lucide.createIcons();
+            },
+            switchTab: (id) => { if(!state.openTabs.includes(id)) state.openTabs.push(id); state.activeTab = id; app.render(); },
+            closeTab: (id, e) => { if(e) e.stopPropagation(); state.openTabs = state.openTabs.filter(t=>t!==id); if(state.openTabs.length===0) state.openTabs=['dashboard']; else if(state.activeTab===id) state.activeTab=state.openTabs[state.openTabs.length-1]; app.render(); },
+
+            // Actions
+            toggleTask: async (id, status) => { const t = state.data.tasks.find(i=>i.id===id); if(t) t.completed=!status; app.renderMain(); await Store.update('tasks', id, {completed: !status}); },
+            deleteTask: async (id) => { if(confirm("Delete?")) { await Store.delete('tasks', id); state.data.tasks = state.data.tasks.filter(t=>t.id!==id); app.renderMain(); } },
+            saveTask: async () => {
+                const title = document.getElementById('inp-title').value;
+                const type = document.getElementById('inp-type').value;
+                const sub = document.getElementById('inp-sub').value;
+                const date = document.getElementById('inp-date').value;
+                if(title) {
+                    await Store.add('tasks', {title, type, subjectId:sub, dueDate:date, completed:false});
+                    state.data.tasks = await Store.fetch('tasks');
+                    document.getElementById('modal-container').classList.add('hidden');
+                    app.renderMain();
+                }
+            },
+            changeMonth: (o) => { state.calendarDate.setMonth(state.calendarDate.getMonth()+o); app.renderMain(); },
+            
+            // Grades
+            addGradeRow: async () => { await Store.add('grades', {subject:'', grade:4.0, credits:3}); state.data.grades = await Store.fetch('grades'); app.renderMain(); },
+            removeGradeRow: async (id) => { await Store.delete('grades', id); state.data.grades = state.data.grades.filter(g=>g.id!==id); app.renderMain(); },
+            updateGradeInput: (id, f, v) => { const r=state.data.grades.find(g=>g.id===id); if(r){ r[f]=f==='subject'?v:parseFloat(v); Store.update('grades',id,{[f]:r[f]}); app.calcGPA(); } },
+            calcGPA: () => {
+                let p=0, c=0; state.data.grades.forEach(g=>{ p+=(parseFloat(g.grade||0)*parseFloat(g.credits||0)); c+=parseFloat(g.credits||0); });
+                document.getElementById('gpa-display').innerText = c===0?'0.00':(p/c).toFixed(2);
+            },
+
+            // Timer
+            toggleTimer: () => {
+                if(state.timer.active) { clearInterval(state.timer.interval); state.timer.active=false; }
+                else {
+                    state.timer.active=true;
+                    state.timer.interval=setInterval(()=>{
+                        state.timer.timeLeft--;
+                        if(state.timer.timeLeft<=0) { clearInterval(state.timer.interval); state.timer.active=false; alert("Done!"); }
+                        const el = document.getElementById('timer-display'); if(el) el.innerText=app.fmtTime(state.timer.timeLeft);
+                        const btn = document.getElementById('timer-btn'); if(btn) btn.innerText='PAUSE';
+                    }, 1000);
+                }
+                const btn = document.getElementById('timer-btn'); if(btn) btn.innerText=state.timer.active?'PAUSE':'START';
+            },
+            setTimerMode: (m) => { clearInterval(state.timer.interval); state.timer.active=false; state.timer.timeLeft=m*60; app.renderMain(); },
+            fmtTime: (s) => `${Math.floor(s/60).toString().padStart(2,'0')}:${(s%60).toString().padStart(2,'0')}`,
+
+            // UI
+            openTaskModal: () => {
+                document.getElementById('modal-container').classList.remove('hidden');
+                document.getElementById('modal-container').innerHTML = `
+                    <div class="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl fade-in">
+                        <div class="flex justify-between items-center mb-6"><h3 class="font-bold text-xl">New Task</h3><button onclick="document.getElementById('modal-container').classList.add('hidden')"><i data-lucide="x"></i></button></div>
+                        <div class="space-y-4">
+                            <div><label class="text-xs font-bold text-slate-500 uppercase">Title</label><input id="inp-title" class="w-full mt-1 p-3 border rounded-lg" autofocus></div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div><label class="text-xs font-bold text-slate-500 uppercase">Type</label><select id="inp-type" class="w-full mt-1 p-3 border rounded-lg">${Object.keys(TASK_TYPES).map(k=>`<option value="${k}">${TASK_TYPES[k].label}</option>`).join('')}</select></div>
+                                <div><label class="text-xs font-bold text-slate-500 uppercase">Subject</label><select id="inp-sub" class="w-full mt-1 p-3 border rounded-lg">${state.data.subjects.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}</select></div>
+                            </div>
+                            <div><label class="text-xs font-bold text-slate-500 uppercase">Date</label><input id="inp-date" type="date" class="w-full mt-1 p-3 border rounded-lg" value="${new Date().toISOString().slice(0,10)}"></div>
+                            <button onclick="app.saveTask()" class="w-full bg-indigo-600 text-white font-bold py-3 rounded-xl mt-4">Create</button>
+                        </div>
+                    </div>`;
+                lucide.createIcons();
+            },
+
+            render: () => { app.renderSidebar(); app.renderTabs(); app.renderHeader(); app.renderMain(); lucide.createIcons(); },
+            renderSidebar: () => {
+                document.getElementById('nav-links').innerHTML = Object.entries(TAB_CONFIG).map(([k,c]) => 
+                    `<button onclick="app.switchTab('${k}')" class="w-full flex items-center ${state.sidebarOpen?'justify-start px-3 gap-3':'justify-center'} py-3 rounded-lg mb-1 transition-all nav-btn ${state.activeTab===k?'bg-indigo-600 text-white shadow-md':'text-slate-400 hover:bg-slate-800 hover:text-white'}">
+                        <i data-lucide="${c.icon}" class="w-5 h-5 shrink-0"></i><span class="sidebar-text font-medium text-sm ${state.sidebarOpen?'w-auto opacity-100':'w-0 opacity-0'}">${c.label}</span>
+                    </button>`).join('');
+            },
+            renderTabs: () => {
+                document.getElementById('tab-bar').innerHTML = state.openTabs.map(id => `<div onclick="app.switchTab('${id}')" class="flex items-center gap-2 px-4 py-2 min-w-[120px] text-xs font-semibold rounded-t-lg cursor-pointer border-t border-x ${state.activeTab===id?'bg-white text-indigo-600 border-slate-200 border-b-white':'bg-slate-100 text-slate-500 hover:bg-slate-200'}"><i data-lucide="${TAB_CONFIG[id].icon}" class="w-3.5 h-3.5"></i><span>${TAB_CONFIG[id].label}</span><span onclick="app.closeTab('${id}', event)" class="hover:bg-slate-300 rounded p-0.5 ml-1"><i data-lucide="x" class="w-3 h-3"></i></span></div>`).join('');
+            },
+            renderHeader: () => { const c=TAB_CONFIG[state.activeTab]; document.getElementById('header-title').innerHTML=`<div class="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center border border-indigo-100"><i data-lucide="${c.icon}" class="w-5 h-5"></i></div><div><h2 class="text-xl font-bold text-slate-800">${c.label}</h2><p class="text-xs text-slate-400 font-medium">Workspace</p></div>`; },
+            renderMain: () => {
+                const {tasks, subjects, grades} = state.data;
+                let html = '';
+                if(state.activeTab==='dashboard') {
+                    const pen = tasks.filter(t=>!t.completed).length;
+                    html = `<div class="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-6xl mx-auto fade-in">
+                        <div class="col-span-2 bg-gradient-to-r from-indigo-600 to-violet-600 rounded-2xl p-8 text-white shadow-xl relative overflow-hidden">
+                            <h2 class="text-3xl font-bold mb-2 relative z-10">Hello!</h2><p class="text-indigo-100 mb-6 relative z-10">You have <strong>${pen} pending tasks</strong>.</p><button onclick="app.switchTab('tasks')" class="bg-white/10 border border-white/20 px-4 py-2 rounded-lg text-sm font-bold relative z-10">View Tasks</button>
+                        </div>
+                        <div class="bg-white rounded-2xl p-6 border shadow-sm flex flex-col justify-center items-center text-center"><span class="text-4xl font-bold text-slate-800">${tasks.filter(t=>t.completed).length}</span><span class="text-xs font-bold text-slate-400 uppercase mt-1">Completed</span></div>
+                        <div class="col-span-3"><h3 class="font-bold text-slate-800 mb-4">Up Next</h3><div class="grid gap-3">${pen===0?'<div class="p-8 text-center bg-white border border-dashed text-slate-400 rounded-xl">No tasks!</div>':tasks.filter(t=>!t.completed).slice(0,3).map(t=>app.taskRow(t)).join('')}</div></div>
+                    </div>`;
+                } else if(state.activeTab==='tasks') {
+                    html = `<div class="max-w-4xl mx-auto fade-in space-y-4">${tasks.length===0?'<div class="text-center py-20 text-slate-400">No tasks found.</div>':tasks.sort((a,b)=>a.completed-b.completed).map(t=>app.taskRow(t)).join('')}</div>`;
+                } else if(state.activeTab==='calendar') {
+                    const d=state.calendarDate, m=d.getMonth(), y=d.getFullYear();
+                    const days = new Date(y, m+1, 0).getDate(), start = new Date(y, m, 1).getDay();
+                    let g = ''; for(let i=0;i<start;i++)g+=`<div class="bg-slate-50/50 min-h-[100px] border-r border-b"></div>`;
+                    for(let i=1;i<=days;i++){
+                        const dt = new Date(y, m, i).toDateString();
+                        g+=`<div class="bg-white min-h-[100px] border-r border-b p-2 hover:bg-slate-50"><span class="text-xs font-bold text-slate-700">${i}</span><div class="space-y-1">${tasks.filter(t=>new Date(t.dueDate).toDateString()===dt).map(t=>`<div class="text-[9px] truncate px-1 rounded text-white" style="background:${subjects.find(s=>s.id===t.subjectId)?.color||'#ccc'}">${t.title}</div>`).join('')}</div></div>`;
+                    }
+                    html = `<div class="max-w-5xl mx-auto fade-in h-full flex flex-col bg-white rounded-xl shadow-sm border overflow-hidden"><div class="p-4 flex justify-between items-center border-b bg-slate-50"><h2 class="font-bold">${d.toLocaleString('default',{month:'long', year:'numeric'})}</h2><div class="flex gap-1"><button onclick="app.changeMonth(-1)"><i data-lucide="chevron-left"></i></button><button onclick="app.changeMonth(1)"><i data-lucide="chevron-right"></i></button></div></div><div class="grid grid-cols-7 text-center text-xs font-bold py-2 border-b"><div>SUN</div><div>MON</div><div>TUE</div><div>WED</div><div>THU</div><div>FRI</div><div>SAT</div></div><div class="grid grid-cols-7 flex-1 bg-slate-100 gap-px border-l border-t-0">${g}</div></div>`;
+                } else if(state.activeTab==='study') {
+                    html = `<div class="max-w-md mx-auto mt-10 fade-in text-center"><div class="bg-white rounded-3xl p-8 shadow-xl border"><div class="flex justify-center gap-2 mb-8"><button onclick="app.setTimerMode(25)" class="px-4 py-1 rounded bg-slate-100 font-bold text-xs">FOCUS</button><button onclick="app.setTimerMode(5)" class="px-4 py-1 rounded text-slate-500 font-bold text-xs">SHORT</button></div><div class="text-8xl font-black text-slate-800" id="timer-display">${app.fmtTime(state.timer.timeLeft)}</div><div class="flex gap-4 mt-8"><button id="timer-btn" onclick="app.toggleTimer()" class="flex-1 py-4 bg-indigo-600 text-white rounded-xl font-bold">START</button><button onclick="app.setTimerMode(25)" class="px-4 bg-slate-100 rounded-xl"><i data-lucide="rotate-ccw"></i></button></div></div></div>`;
+                } else if(state.activeTab==='grades') {
+                    html = `<div class="max-w-2xl mx-auto fade-in space-y-6"><div class="bg-white border rounded-xl p-6 shadow-sm"><div class="space-y-2">${grades.map(g=>`<div class="grid grid-cols-12 gap-2 items-center"><input oninput="app.updateGradeInput('${g.id}','subject',this.value)" class="col-span-5 p-2 border rounded text-sm" value="${g.subject}"><input oninput="app.updateGradeInput('${g.id}','grade',this.value)" type="number" class="col-span-3 p-2 border rounded text-sm" value="${g.grade}"><input oninput="app.updateGradeInput('${g.id}','credits',this.value)" type="number" class="col-span-3 p-2 border rounded text-sm" value="${g.credits}"><button onclick="app.removeGradeRow('${g.id}')" class="col-span-1 text-red-500"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>`).join('')}</div><div class="mt-6 pt-4 border-t flex justify-between items-center"><button onclick="app.addGradeRow()" class="text-sm font-bold text-indigo-600">Add Subject</button><div class="text-right"><span class="text-xs font-bold text-slate-500 uppercase">GPA</span><span id="gpa-display" class="text-3xl font-bold text-emerald-600">0.00</span></div></div></div></div>`; setTimeout(app.calcGPA,0);
+                }
+                document.getElementById('main-view').innerHTML = html;
+            },
+            taskRow: (t) => {
+                const s = state.data.subjects.find(sub=>sub.id===t.subjectId);
+                const tp = TASK_TYPES[t.type]||TASK_TYPES.HOMEWORK;
+                return `<div class="bg-white p-4 rounded-xl border flex items-center justify-between hover:shadow-md transition-all mb-3"><div class="flex items-center gap-4"><button onclick="app.toggleTask('${t.id}',${t.completed})" class="w-6 h-6 rounded-full border-2 flex items-center justify-center ${t.completed?'bg-emerald-500 border-emerald-500 text-white':'border-slate-300'}"><i data-lucide="check" class="w-3.5 h-3.5"></i></button><div><div class="flex gap-2 mb-1"><span class="text-[10px] font-bold ${tp.color} px-2 py-0.5 rounded border flex items-center gap-1"><i data-lucide="${tp.icon}" class="w-3 h-3"></i> ${tp.label}</span><span class="text-[10px] font-bold text-white px-2 py-0.5 rounded" style="background:${s?.color||'#999'}">${s?.name||'General'}</span></div><h4 class="font-semibold ${t.completed?'line-through text-slate-400':''}">${t.title}</h4></div></div><button onclick="app.deleteTask('${t.id}')" class="text-slate-300 hover:text-red-500"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>`;
+            }
+        };
+
+        window.addEventListener('DOMContentLoaded', app.init);
+    </script>
+</body>
+</html>
